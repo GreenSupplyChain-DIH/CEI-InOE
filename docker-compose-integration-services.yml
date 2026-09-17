@@ -1,0 +1,29 @@
+services:
+  cow-collector:
+    image: ghcr.io/greensupplychain-dih/shepherdai-collector:${IMAGE_TAG:-main}
+    build:
+      context: ../cow-collector
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${COW_COLLECTOR_DATABASE_URL:-postgres://ocei:ocei@postgres:5432/ocei4?sslmode=disable}
+      JETSON_BASE_URL: ${COW_COLLECTOR_JETSON_BASE_URL:-http://host.docker.internal:8000}
+      JETSON_API_KEY: ${COW_COLLECTOR_JETSON_API_KEY:-kc2IUroFUcLYi6-2hGyhb3gpo-u-MbfikUd2MgABwc4}
+      JETSON_API_KEY_HEADER: ${COW_COLLECTOR_JETSON_API_KEY_HEADER:-x-api-key}
+      JETSON_ENDPOINT: ${COW_COLLECTOR_JETSON_ENDPOINT:-/health-status/latest}
+      POLL_INTERVAL: ${COW_COLLECTOR_POLL_INTERVAL:-2s}
+      REQUEST_TIMEOUT: ${COW_COLLECTOR_REQUEST_TIMEOUT:-10s}
+      PG_SCHEMA: ${COW_COLLECTOR_PG_SCHEMA:-jetson_telemetry}
+      PG_TELEMETRY_TABLE: ${COW_COLLECTOR_PG_TELEMETRY_TABLE:-cow_telemetry_history}
+      PG_ALERTS_TABLE: ${COW_COLLECTOR_PG_ALERTS_TABLE:-cow_alert_events}
+      TARGET_COW_IDS: ${COW_COLLECTOR_TARGET_COW_IDS:-3,10,12}
+      ALLOW_ALL_COW_IDS: ${COW_COLLECTOR_ALLOW_ALL_COW_IDS:-true}
+      HEALTH_ADDR: ${COW_COLLECTOR_HEALTH_ADDR:-:8081}
+      BUFFER_PATH: ${COW_COLLECTOR_BUFFER_PATH:-./var/spool/pending.jsonl}
+      LOG_LEVEL: ${COW_COLLECTOR_LOG_LEVEL:-INFO}
+      BATCH_SIZE: ${COW_COLLECTOR_BATCH_SIZE:-100}
+      BACKOFF_BASE: ${COW_COLLECTOR_BACKOFF_BASE:-2s}
+      BACKOFF_MAX: ${COW_COLLECTOR_BACKOFF_MAX:-30s}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
