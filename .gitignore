@@ -46,6 +46,10 @@ coverage.xml
 # Environments
 .env
 .env.*
+!.env.example
+!product_api/.env.example
+# Sensitive Product API site registry (alias -> datasource ids); only the example is committed
+product_api/site_product_registry.yaml
 .venv
 env/
 venv/

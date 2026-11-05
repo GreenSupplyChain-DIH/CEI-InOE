@@ -1,0 +1,56 @@
+# Product API deployment (edge device). Separate compose project from CEI-InOE.
+#
+#   docker compose -f docker-compose.product-api.yml --env-file product_api/.env up -d --build
+#
+# The service has NO published host port. It joins the CEI-InOE database network
+# as an external network and is reachable only by containers on that network.
+# To let the FDC connector reach it over a private VPN/WireGuard address, add a
+# port binding to that private address only (never 0.0.0.0), e.g.:
+#   ports: ["10.8.0.2:8100:8100"]
+#
+# The CEI-InOE compose project network name defaults to "<project-dir>_default".
+# Override with CEI_INOE_DB_NETWORK if yours differs (docker network ls).
+
+services:
+  product-api:
+    build:
+      context: .
+      dockerfile: product_api/Dockerfile
+    env_file:
+      - product_api/.env
+    environment:
+      PRODUCT_API_SITE_REGISTRY_PATH: /run/secrets/product-site-registry.yaml
+    secrets:
+      - product-site-registry.yaml
+    networks:
+      - cei-inoe-db
+    read_only: true
+    ports:
+      - "8100:8100"
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+secrets:
+  product-site-registry.yaml:
+    # Sensitive: maps public aliases to internal datasource ids. Keep out of Git.
+    file: ${PRODUCT_API_SITE_REGISTRY_FILE:-./product_api/site_product_registry.yaml}
+
+networks:
+  cei-inoe-db:
+    external: true
+    name: ${CEI_INOE_DB_NETWORK:-cei-inoe_default}

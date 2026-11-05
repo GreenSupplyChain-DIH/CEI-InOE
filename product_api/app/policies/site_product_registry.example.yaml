@@ -1,0 +1,8 @@
+# Example product-site registry. The real file is sensitive: mount it as a secret
+# (PRODUCT_API_SITE_REGISTRY_PATH) and do not commit it.
+sites:
+  site-pilot-01:                 # pseudonymous alias exposed to consumers
+    timezone: Asia/Nicosia       # reporting timezone: defines the calendar day
+    datasources:
+      - id: 1                    # internal datasource id (never exposed)
+        ts_timezone: Asia/Nicosia  # timezone `ts` is stored in; use UTC after the UTC migration
