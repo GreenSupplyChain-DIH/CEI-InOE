@@ -1,0 +1,21 @@
+---
+- name: Verify host-specific active sites
+  hosts: nuc
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../group_vars/nuc.yml
+    - ../group_vars/nuc/vault.example.yml
+  vars:
+    expected_sites:
+      site-test-blue: blue_farm
+      site-test-lk: lk_farm
+      site-test-fallback: SITE_NAME
+  tasks:
+    - name: Verify the selected site in the rendered environment
+      vars:
+        rendered_env: "{{ lookup('ansible.builtin.template', '../templates/cei-inoe.env.j2') }}"
+      ansible.builtin.assert:
+        that:
+          - cei_inoe_active_site == expected_sites[inventory_hostname]
+          - "'ACTIVE_SITE=' ~ expected_sites[inventory_hostname] in rendered_env.splitlines()"

@@ -9,7 +9,7 @@ cei_inoe_repo_url: https://github.com/fedjo/CEI-InOE.git
 cei_inoe_version: testing
 
 # ============================================================================
-# Service Ports
+# Published host ports (container ports stay 8000, 3000 and 5432)
 # ============================================================================
 cei_inoe_api_port: 8000
 cei_inoe_grafana_port: 3000
@@ -33,7 +33,7 @@ cei_inoe_cors_origins: "{{ vault_cei_inoe_cors_origins }}"
 # ============================================================================
 # Selects which site to activate from ingestor/conf/site_config.yaml.
 # Valid values: blue_farm | lk_farm | charalambides
-cei_inoe_active_site: "{{ vault_cei_inoe_active_site }}"
+cei_inoe_active_site: "{{ host_active_site | default(vault_cei_inoe_active_site) }}"
 
 # ============================================================================
 # Worker Configuration

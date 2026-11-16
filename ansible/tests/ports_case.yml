@@ -1,0 +1,73 @@
+---
+- name: Create instance directory
+  ansible.builtin.file:
+    path: "{{ test_dir.path }}/cei-inoe-{{ port_case.name }}"
+    state: directory
+    mode: "0700"
+
+- name: Copy Compose file
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../docker-compose.dev.yml"
+    dest: "{{ test_dir.path }}/cei-inoe-{{ port_case.name }}/docker-compose.dev.yml"
+    mode: "0644"
+
+- name: Render deployment templates
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../templates/{{ item.src }}"
+    dest: "{{ test_dir.path }}/cei-inoe-{{ port_case.name }}/{{ item.dest }}"
+    mode: "0600"
+  loop:
+    - src: cei-inoe.env.j2
+      dest: .env
+    - src: docker-compose.override.yml.j2
+      dest: docker-compose.override.yml
+
+- name: Resolve Compose configuration
+  ansible.builtin.command:
+    argv:
+      - env
+      - -u
+      - DB_PORT
+      - -u
+      - DB_PUBLISHED_PORT
+      - -u
+      - API_PUBLISHED_PORT
+      - -u
+      - GRAFANA_PUBLISHED_PORT
+      - -u
+      - COMPOSE_PROJECT_NAME
+      - docker
+      - compose
+      - -f
+      - docker-compose.dev.yml
+      - -f
+      - docker-compose.override.yml
+      - config
+      - --format
+      - json
+    chdir: "{{ test_dir.path }}/cei-inoe-{{ port_case.name }}"
+  register: compose_result
+  changed_when: false
+
+- name: Verify exact published ports and internal database connectivity
+  vars:
+    compose: "{{ compose_result.stdout | from_json }}"
+  ansible.builtin.assert:
+    that:
+      - compose.name == 'cei-inoe-' ~ port_case.name
+      - compose.volumes.pgdata.name == 'cei-inoe-' ~ port_case.name ~ '_pgdata'
+      - compose.volumes['grafana-data'].name == 'cei-inoe-' ~ port_case.name ~ '_grafana-data'
+      - compose.services.postgres.ports | length == 1
+      - compose.services.postgres.ports[0].published | int == port_case.db
+      - compose.services.postgres.ports[0].target == 5432
+      - compose.services.api.ports | length == 1
+      - compose.services.api.ports[0].published | int == port_case.api
+      - compose.services.api.ports[0].target == 8000
+      - compose.services.grafana.ports | length == 1
+      - compose.services.grafana.ports[0].published | int == port_case.grafana
+      - compose.services.grafana.ports[0].target == 3000
+      - compose.services.migrations.environment.DB_PORT | int == 5432
+      - compose.services.ingestor.environment.DB_PORT | int == 5432
+      - compose.services.api.environment.DB_PORT | int == 5432
+      - compose.services.api.environment.DB_HOST == 'postgres'
+      - "'@postgres:5432/' in compose.services.api.environment.DATABASE_URL"

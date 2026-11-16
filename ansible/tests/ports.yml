@@ -1,0 +1,65 @@
+---
+- name: Verify published Compose ports
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../group_vars/nuc.yml
+    - ../group_vars/nuc/vault.example.yml
+  tasks:
+    - name: Create temporary test directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: cei-inoe-ports-
+      register: test_dir
+
+    - name: Verify default and custom deployments
+      block:
+        - name: Test each port configuration
+          ansible.builtin.include_tasks: ports_case.yml
+          loop:
+            - name: default
+              api: 8000
+              db: 5432
+              grafana: 3000
+            - name: second
+              api: 8001
+              db: 5433
+              grafana: 3001
+          loop_control:
+            loop_var: port_case
+          vars:
+            cei_inoe_api_port: "{{ port_case.api }}"
+            cei_inoe_db_port: "{{ port_case.db }}"
+            cei_inoe_grafana_port: "{{ port_case.grafana }}"
+
+        - name: Check legacy DB_PORT fallback without a published port
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - -f
+              - docker-compose.dev.yml
+              - config
+              - --format
+              - json
+            chdir: "{{ test_dir.path }}/cei-inoe-default"
+          environment:
+            DB_PORT: "5435"
+            DB_PUBLISHED_PORT: ""
+          register: legacy_compose
+          changed_when: false
+
+        - name: Verify legacy database port mapping
+          vars:
+            compose: "{{ legacy_compose.stdout | from_json }}"
+          ansible.builtin.assert:
+            that:
+              - compose.services.postgres.ports | length == 1
+              - compose.services.postgres.ports[0].published | int == 5435
+              - compose.services.postgres.ports[0].target == 5432
+      always:
+        - name: Remove temporary test directory
+          ansible.builtin.file:
+            path: "{{ test_dir.path }}"
+            state: absent

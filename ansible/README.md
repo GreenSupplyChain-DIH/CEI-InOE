@@ -37,6 +37,8 @@ Edit `group_vars/nuc.yml` and adjust:
 - `cei_inoe_repo_url`: Repository URL (SSH or HTTPS)
 - `cei_inoe_version`: Git branch or tag to deploy
 - `cei_inoe_cors_origins`: Allowed CORS origins (include NUC IP)
+- `cei_inoe_api_port`, `cei_inoe_db_port`, `cei_inoe_grafana_port`:
+  published host ports (defaults: 8000, 5432, 3000)
 - Connector settings: poll intervals, lookback days, etc.
 
 ### 4. Set Secrets
@@ -71,8 +73,30 @@ vault_cei_inoe_airbeld_password: "airbeld-password"
 # Add other connector credentials as needed
 ```
 
-Use `examples/vault.example.yml` as the complete key checklist. The
+Use `group_vars/nuc/vault.example.yml` as the complete key checklist. The
 example contains placeholders only; never put real values in it.
+
+### Per-host active site
+
+Set `host_active_site` in `inventory/host_vars/<host-alias>.yml` to select
+the active site for that host. The filename must match its alias in
+`inventory/hosts.yml`. For example:
+
+```yaml
+---
+host_active_site: blue_farm
+```
+
+An example file for `cei-nuc-01` is provided; replace its `{}` with the
+setting above. Add another inventory host and matching host variables file to
+configure a different site, such as `lk_farm`. Available site names are defined
+in `ingestor/conf/site_config.yaml` in the deployed version. If
+`host_active_site` is not set, the existing `vault_cei_inoe_active_site` value
+is used.
+
+This override only applies to the active site. Other settings and credentials
+still come from the shared group variables and vault; adding per-host overrides
+for them requires corresponding changes to the variable mappings.
 
 ### 5. Deploy
 
@@ -93,9 +117,41 @@ The playbook will:
 6. Start the Docker Compose stack
 7. Wait for services to be healthy
 
+### Multiple deployments on one device
+
+Each deployment needs its own checkout directory with a distinct directory
+name, and three host ports that are not in use by another deployment or
+service. Docker Compose derives its project name from the directory name;
+different names isolate the containers, networks and named database and
+Grafana volumes. Do not set the same `COMPOSE_PROJECT_NAME` for both stacks.
+Existing non-repository deployment directories may be removed by the playbook
+before checkout, so choose a new, empty path.
+
+For example, leave the first deployment at its defaults and deploy a second:
+
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/deploy.yml \
+  -e cei_inoe_app_dir=/opt/cei-inoe-second \
+  -e cei_inoe_api_port=8001 \
+  -e cei_inoe_db_port=5433 \
+  -e cei_inoe_grafana_port=3001 \
+  --ask-become-pass \
+  --ask-vault-pass
+```
+
+Use the same options on subsequent deployments of that instance. Ensure the
+selected `cei_inoe_version` contains the corresponding Compose changes. The
+ports are host-side only: PostgreSQL remains on `postgres:5432` inside each
+Compose network, and API and Grafana remain on container ports 8000 and 3000.
+The API health check uses the configured host port. Include the relevant
+browser origins and ports in `vault_cei_inoe_cors_origins` for each instance.
+Changing an existing deployment's directory or Compose project name creates
+new volumes rather than moving its existing data.
+
 ### 6. Verify Deployment
 
-After successful deployment, verify the services:
+After successful deployment, verify the services (replace the ports with the
+configured host ports if different):
 
 ```bash
 # Check health endpoint
@@ -142,23 +198,43 @@ SSH into the NUC and use Docker Compose commands:
 cd /opt/cei-inoe
 
 # View running services
-docker compose -f docker-compose.new.yaml -f docker-compose.override.yml ps
+docker compose -f docker-compose.dev.yml -f docker-compose.override.yml ps
 
 # View logs
-docker compose -f docker-compose.new.yaml -f docker-compose.override.yml logs -f
+docker compose -f docker-compose.dev.yml -f docker-compose.override.yml logs -f
 
 # View specific service logs
-docker compose -f docker-compose.new.yaml -f docker-compose.override.yml logs -f api
-docker compose -f docker-compose.new.yaml -f docker-compose.override.yml logs -f ingestor
+docker compose -f docker-compose.dev.yml -f docker-compose.override.yml logs -f api
+docker compose -f docker-compose.dev.yml -f docker-compose.override.yml logs -f ingestor
 
 # Restart services
-docker compose -f docker-compose.new.yaml -f docker-compose.override.yml restart
+docker compose -f docker-compose.dev.yml -f docker-compose.override.yml restart
 
 # Stop services
-docker compose -f docker-compose.new.yaml -f docker-compose.override.yml down
+docker compose -f docker-compose.dev.yml -f docker-compose.override.yml down
 
 # Start services
-docker compose -f docker-compose.new.yaml -f docker-compose.override.yml up -d
+docker compose -f docker-compose.dev.yml -f docker-compose.override.yml up -d
+```
+
+For another instance, change to its own checkout directory before running
+these commands.
+
+## Testing port configuration
+
+With Ansible and the Docker Compose plugin installed, run:
+
+```bash
+ansible-playbook -i localhost, tests/ports.yml
+```
+
+This renders example deployments and checks their resolved Compose
+configuration; it does not start containers.
+
+To test per-host site selection and the vault fallback without deploying:
+
+```bash
+ansible-playbook -i tests/site_inventory/hosts.yml tests/active_site.yml
 ```
 
 ## Directory Structure
@@ -208,7 +284,7 @@ If the health check times out:
 2. Check service status: `docker compose ps`
 3. Check logs: `docker compose logs api`
 4. Verify network connectivity
-5. Check if port 8000 is accessible
+5. Check if the configured API host port is accessible
 
 ### Database Connection Issues
 

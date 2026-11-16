@@ -1,0 +1,3 @@
+---
+# To override the shared vault value, replace {} with for example:
+host_active_site: blue_farm
