@@ -6,7 +6,7 @@ Uses ConfigDict(from_attributes=True) to auto-convert from ORM objects.
 """
 
 from datetime import datetime, date
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
@@ -207,6 +207,15 @@ class EnergyDailyRead(EnergyDailyBase):
     source_device_id: Optional[str] = None
     datasource_id: Optional[int] = None
     ingested_at: Optional[datetime] = None
+
+
+class EnergyDailyAggregateRead(BaseModel):
+    """Daily consumption calculated from hourly readings."""
+    datasource_id: int
+    ts: date
+    energy_kwh: Optional[float]
+    quality: Literal["complete", "partial", "missing"]
+    coverage_percent: float
 
 
 # =============================================================================
@@ -475,6 +484,11 @@ class PaginatedResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class PaginatedEnergyDailyAggregateResponse(PaginatedResponse):
+    """Paginated daily energy aggregates."""
+    data: list[EnergyDailyAggregateRead]
 
 
 class HealthResponse(BaseModel):

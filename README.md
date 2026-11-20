@@ -86,7 +86,7 @@ Authentication: `X-API-Key: <API_KEY>` header on all `/api/v1/*` routes.
 | `GET /health` | Service health (public) |
 | `GET /ready` | Readiness probe (public) |
 | `GET /api/v1/energy/hourly` | Hourly energy consumption |
-| `GET /api/v1/energy/daily` | Daily energy consumption |
+| `GET /api/v1/energy/daily` | Daily energy consumption aggregated from hourly readings for online datasources |
 | `GET /api/v1/energy/latest` | Latest energy reading |
 | `GET /api/v1/energy/stats` | Energy data statistics |
 | `GET /api/v1/environmental/hourly` | Environmental sensor readings |
@@ -103,6 +103,11 @@ Authentication: `X-API-Key: <API_KEY>` header on all `/api/v1/*` routes.
 | `GET /api/v1/batches/{batch_id}` | Batch by UUID |
 
 Interactive docs: **http://localhost:8000/docs** (Swagger UI)
+
+The daily energy endpoint returns datasource/day aggregates, including missing
+days, rather than stored daily records. It accepts inclusive date ranges of at
+most 366 days and an optional `datasource_id`. Coverage is based on 24 distinct
+stored clock-hour buckets, without timezone conversion or DST adjustment.
 
 ---
 
