@@ -9,7 +9,10 @@ from app.db.queries import energy as energy_queries
 from app.config import settings
 from app.auth import AuthenticatedPrincipal, ensure_datasource_access, verify_api_key
 
-from shared import EnergyHourlyRead, EnergyDailyRead, PaginatedResponse
+from shared import (
+    EnergyHourlyRead, EnergyDailyAggregateRead, PaginatedResponse,
+    PaginatedEnergyDailyAggregateResponse,
+)
 
 router = APIRouter()
 
@@ -60,11 +63,11 @@ async def get_hourly_energy(
     )
 
 
-@router.get("/daily", response_model=PaginatedResponse)
+@router.get("/daily", response_model=PaginatedEnergyDailyAggregateResponse)
 async def get_daily_energy(
     start_date: date = Query(..., description="Start date (inclusive)"),
     end_date: date = Query(..., description="End date (inclusive)"),
-    datasource_id: int = Query(..., description="Filter by datasource ID"),
+    datasource_id: int | None = Query(None, description="Filter by datasource ID"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(
         settings.default_page_size, 
@@ -76,29 +79,45 @@ async def get_daily_energy(
     principal: AuthenticatedPrincipal = Depends(verify_api_key),
 ):
     """
-    Get daily energy consumption records.
-    
-    Returns paginated daily energy data.
+    Get daily energy totals from hourly readings for online energy datasources.
+
+    Days follow the stored timestamps without timezone conversion. Coverage uses
+    24 distinct clock-hour buckets; missing days have null energy.
     """
-    ensure_datasource_access(principal, datasource_id)
+    if datasource_id is not None:
+        ensure_datasource_access(principal, datasource_id)
 
     if start_date > end_date:
         raise HTTPException(
             status_code=400, 
             detail="start_date must be before or equal to end_date"
         )
+    if (end_date - start_date).days + 1 > 366:
+        raise HTTPException(status_code=400, detail="Date range cannot exceed 366 days")
     
     records, total = energy_queries.get_daily(
         db=db,
         start_date=start_date,
         end_date=end_date,
         datasource_id=datasource_id,
+        datasource_ids=None if principal.is_superuser else list(principal.allowed_datasource_ids),
         page=page,
         page_size=page_size
     )
     
-    return PaginatedResponse(
-        data=[EnergyDailyRead.model_validate(r) for r in records],
+    return PaginatedEnergyDailyAggregateResponse(
+        data=[
+            EnergyDailyAggregateRead(
+                datasource_id=r.datasource_id,
+                ts=r.ts,
+                energy_kwh=r.energy_kwh,
+                quality="missing" if r.observed_hours == 0 else (
+                    "complete" if r.observed_hours == 24 else "partial"
+                ),
+                coverage_percent=100.0 * r.observed_hours / 24,
+            )
+            for r in records
+        ],
         total=total,
         page=page,
         page_size=page_size,

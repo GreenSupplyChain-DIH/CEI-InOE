@@ -62,21 +62,6 @@ def energy_hourly_record(**overrides):
     return SimpleNamespace(**values)
 
 
-def energy_daily_record(**overrides):
-    values = {
-        "energy_id": 2,
-        "ts": date(2026, 1, 1),
-        "energy_kwh": 120.5,
-        "source_type": "api",
-        "source_batch_id": BATCH_ID,
-        "source_device_id": "meter-1",
-        "datasource_id": 10,
-        "ingested_at": NOW,
-    }
-    values.update(overrides)
-    return SimpleNamespace(**values)
-
-
 def environmental_record(**overrides):
     values = {
         "id": 3,
@@ -281,7 +266,7 @@ def test_energy_routes(client, auth_headers, monkeypatch, db):
 
     def fake_get_daily(**kwargs):
         calls["daily"] = kwargs
-        return [energy_daily_record()], 1
+        return [energy.energy_queries.DailyEnergyAggregate(10, date(2026, 1, 1), 120.5, 24)], 1
 
     monkeypatch.setattr(energy.energy_queries, "get_hourly", fake_get_hourly)
     monkeypatch.setattr(energy.energy_queries, "get_daily", fake_get_daily)
@@ -311,7 +296,11 @@ def test_energy_routes(client, auth_headers, monkeypatch, db):
         params={"start_date": "2026-01-01", "end_date": "2026-01-01", "datasource_id": 10, "page_size": 2},
     )
     assert daily.status_code == 200
-    assert daily.json()["data"][0]["ts"] == "2026-01-01"
+    assert daily.json()["data"][0] == {
+        "datasource_id": 10, "ts": "2026-01-01", "energy_kwh": 120.5,
+        "quality": "complete", "coverage_percent": 100.0,
+    }
+    assert calls["daily"]["datasource_ids"] is None
 
     latest = client.get("/api/v1/energy/latest", headers=auth_headers, params={"datasource_id": 10})
     assert latest.status_code == 200
@@ -331,6 +320,47 @@ def test_energy_date_range_validation(client, auth_headers, path):
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "start_date must be before or equal to end_date"
+
+
+def test_daily_energy_quality_pagination_and_date_limit(client, auth_headers, monkeypatch):
+    calls = []
+
+    def fake_get_daily(**kwargs):
+        calls.append(kwargs)
+        return [
+            energy.energy_queries.DailyEnergyAggregate(10, date(2026, 1, 2), 3.0, 12),
+            energy.energy_queries.DailyEnergyAggregate(11, date(2026, 1, 2), None, 0),
+        ], 4
+
+    monkeypatch.setattr(energy.energy_queries, "get_daily", fake_get_daily)
+    response = client.get(
+        "/api/v1/energy/daily", headers=auth_headers,
+        params={"start_date": "2026-01-01", "end_date": "2026-01-02", "page": 2, "page_size": 2},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "data": [
+            {"datasource_id": 10, "ts": "2026-01-02", "energy_kwh": 3.0,
+             "quality": "partial", "coverage_percent": 50.0},
+            {"datasource_id": 11, "ts": "2026-01-02", "energy_kwh": None,
+             "quality": "missing", "coverage_percent": 0.0},
+        ],
+        "total": 4, "page": 2, "page_size": 2, "total_pages": 2,
+    }
+    assert calls[0]["datasource_id"] is None
+    assert calls[0]["page"] == 2
+
+    too_long = client.get(
+        "/api/v1/energy/daily", headers=auth_headers,
+        params={"start_date": "2024-01-01", "end_date": "2025-01-01"},
+    )
+    assert too_long.status_code == 400
+    assert len(calls) == 1
+    accepted = client.get(
+        "/api/v1/energy/daily", headers=auth_headers,
+        params={"start_date": "2024-01-01", "end_date": "2024-12-31"},
+    )
+    assert accepted.status_code == 200
 
 
 def test_energy_latest_returns_404_when_missing(client, auth_headers, monkeypatch):

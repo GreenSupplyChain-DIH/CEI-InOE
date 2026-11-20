@@ -194,3 +194,43 @@ def test_restricted_principal_energy_stats_forbidden(client, monkeypatch):
 
     response = client.get("/api/v1/energy/stats", headers={"X-API-Key": "restricted-key"})
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize("allowed", [[45], []])
+def test_daily_energy_scopes_unfiltered_requests(client, monkeypatch, allowed):
+    monkeypatch.setattr(
+        auth.principal_queries, "get_principal_by_api_key_hash",
+        lambda session, api_key_hash: _fake_principal_row(principal_id=7),
+    )
+    monkeypatch.setattr(
+        auth.principal_queries, "get_datasource_ids_for_principal",
+        lambda session, principal_id: allowed,
+    )
+    calls = []
+    monkeypatch.setattr(
+        energy.energy_queries, "get_daily",
+        lambda **kwargs: (calls.append(kwargs) or [], 0),
+    )
+    response = client.get(
+        "/api/v1/energy/daily", headers={"X-API-Key": "restricted-key"},
+        params={"start_date": "2026-01-01", "end_date": "2026-01-01"},
+    )
+    assert response.status_code == 200
+    assert calls[0]["datasource_ids"] == allowed
+    assert response.json()["data"] == []
+
+
+def test_daily_energy_rejects_unauthorized_datasource(client, monkeypatch):
+    monkeypatch.setattr(
+        auth.principal_queries, "get_principal_by_api_key_hash",
+        lambda session, api_key_hash: _fake_principal_row(principal_id=7),
+    )
+    monkeypatch.setattr(
+        auth.principal_queries, "get_datasource_ids_for_principal",
+        lambda session, principal_id: [45],
+    )
+    response = client.get(
+        "/api/v1/energy/daily", headers={"X-API-Key": "restricted-key"},
+        params={"start_date": "2026-01-01", "end_date": "2026-01-01", "datasource_id": 99},
+    )
+    assert response.status_code == 404
